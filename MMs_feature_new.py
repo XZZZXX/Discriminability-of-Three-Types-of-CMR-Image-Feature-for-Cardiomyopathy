@@ -1,0 +1,175 @@
+# This is a sample Python script.
+
+# Press Shift+F10 to execute it or replace it with your code.
+# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+
+import radiomics
+from radiomics import featureextractor
+import pandas as pd
+import os
+import re
+import SimpleITK as sitk
+import subprocess
+import nibabel
+import numpy as np
+
+def Itensity_normalize_one_volume(image):
+        image = image.astype(np.float32)
+
+        minimum = np.min(image)
+        maximum = np.max(image)
+
+        if maximum > minimum:
+                ret = (image - minimum) / (maximum - minimum)
+        else:
+                ret = image * 0.
+        return ret
+
+
+def ImageResample(sitk_image, new_spacing=[1.0, 1.0, 1.0], is_label=False):
+    '''
+    sitk_image:
+    new_spacing: x,y,z
+    is_label: if True, using Interpolator `sitk.sitkNearestNeighbor`
+    '''
+    size = np.array(sitk_image.GetSize())
+    spacing = np.array(sitk_image.GetSpacing())
+    new_spacing = np.array(new_spacing)
+    new_size = size * spacing / new_spacing
+    new_spacing_refine = size * spacing / new_size
+    new_spacing_refine = [float(s) for s in new_spacing_refine]
+    new_size = [int(s) for s in new_size]
+
+    resample = sitk.ResampleImageFilter()
+    resample.SetOutputDirection(sitk_image.GetDirection())
+    resample.SetOutputOrigin(sitk_image.GetOrigin())
+    resample.SetSize(new_size)
+    resample.SetOutputSpacing(new_spacing_refine)
+
+    if is_label:
+        resample.SetInterpolator(sitk.sitkNearestNeighbor)
+    else:
+        # resample.SetInterpolator(sitk.sitkBSpline)
+        resample.SetInterpolator(sitk.sitkLinear)
+
+    newimage = resample.Execute(sitk_image)
+    return newimage
+
+# Get the location of the example settings file
+paramsFile = os.path.abspath(os.path.join('ACDC_no_filter.yaml'))
+dataDir = r'E:\study\Cardiacradiomics\datasets\RAI_openDataset'
+# name_list = pd.read_csv(filepath_or_buffer = dataDir+'/226_list.csv', sep = ',')
+Information = pd.read_csv(filepath_or_buffer = dataDir+'\data.csv', sep = ',')
+saveDir = r'E:\study\Cardiacradiomics\datasets\duiqi'
+gt_dir = r'E:\study\Cardiacradiomics\datasets\save'
+extractor = featureextractor.RadiomicsFeatureExtractor(paramsFile,geometryTolerance=100)
+# data_name = Information['External code']
+dfD =pd.DataFrame()
+for name in Information['External code']:
+#         for name in
+#
+# for name in data_name:
+        if pd.isnull(name):
+                break
+        data = Information.loc[Information['External code'] == name]
+        print(name)
+        ED = pd.DataFrame(data['ED']).values
+        ED = ED.reshape(1)
+        ED = str(ED[0]).zfill(2)
+        ES = pd.DataFrame(data['ES']).values
+        ES = ES.reshape(1)
+        ES = str(ES[0]).zfill(2)
+        df = pd.DataFrame()
+        ##################################ED####################################
+        EDdir = dataDir+'\\'+name+'\\'+name+"_frame"+ED
+        gtDIR = gt_dir+'\\'+name+"_frame"+ED
+        ED_imagedir = EDdir + '.nii.gz'
+        image_ed = sitk.ReadImage(ED_imagedir)
+        # image_ed = ImageResample(image_ed, [1.0, 1.0, 10.0], is_label=False)
+        # image_ed_n = sitk.GetArrayFromImage(image_ed)
+        # image_ed_n = Itensity_normalize_one_volume(image_ed_n)
+        # image_ed_n= sitk.GetImageFromArray(image_ed_n)
+        # image_ed_n.CopyInformation(image_ed)
+        # sitk.WriteImage(image_ed_n, ED_imagedir)
+        ED_myo_maskdir = gtDIR + '_gt_MYO.nii.gz'
+        image_ed_myo = sitk.ReadImage(ED_myo_maskdir)
+        # image_ed_myo = ImageResample(image_ed_myo, [1.0, 1.0, 10.0], is_label=True)
+        # sitk.WriteImage(image_ed_myo, ED_myo_maskdir, True)
+        ED_myo_featureVector = extractor.execute(ED_imagedir, ED_myo_maskdir)
+        df_add_myo_ED = pd.DataFrame.from_dict(ED_myo_featureVector.values()).T
+        df_add_myo_ED.columns = ED_myo_featureVector.keys()
+        df = pd.concat([df, df_add_myo_ED],axis=1)
+        ED_lv_maskdir = gtDIR + '_gt_LV.nii.gz'
+        image_ed_lv = sitk.ReadImage(ED_lv_maskdir)
+        # image_ed_lv = ImageResample(image_ed_lv, [1.0, 1.0, 10.0], is_label=True)
+        # sitk.WriteImage(image_ed_lv, ED_lv_maskdir, True)
+        ED_lv_featureVector = extractor.execute(ED_imagedir, ED_lv_maskdir)
+        df_add_ED_lv = pd.DataFrame.from_dict(ED_lv_featureVector.values()).T
+        df_add_ED_lv.columns = ED_lv_featureVector.keys()
+        df = pd.concat([df, df_add_ED_lv],axis=1)
+        ED_rv_maskdir = gtDIR + '_gt_RV.nii.gz'
+        image_ed_rv = sitk.ReadImage(ED_rv_maskdir)
+        # image_ed_rv = ImageResample(image_ed_rv, [1.0, 1.0, 10.0], is_label=True)
+        # sitk.WriteImage(image_ed_rv, ED_rv_maskdir, True)
+        ED_rv_featureVector = extractor.execute(ED_imagedir, ED_rv_maskdir)
+        df_add_ED_rv = pd.DataFrame.from_dict(ED_rv_featureVector.values()).T
+        df_add_ED_rv.columns = ED_rv_featureVector.keys()
+        df = pd.concat([df, df_add_ED_rv],axis=1)
+        ##################################ES####################################
+        ESdir = dataDir + '\\' + name + '\\' + name + "_frame" + ES
+        ES_imagedir = ESdir + '.nii.gz'
+        image_es = sitk.ReadImage(ES_imagedir)
+        # image_es = ImageResample(image_es, [1.0, 1.0, 10.0], is_label=False)
+        # image_es_n = sitk.GetArrayFromImage(image_es)
+        # image_es_n = Itensity_normalize_one_volume(image_es_n)
+        # image_es_n = sitk.GetImageFromArray(image_es_n)
+        # image_es_n.CopyInformation(image_es)
+        # sitk.WriteImage(image_es, ES_imagedir, True)
+        ES_myo_maskdir = gtDIR + '_gt_MYO.nii.gz'
+        image_es_myo = sitk.ReadImage(ES_myo_maskdir)
+        # image_es_myo = ImageResample(image_es_myo, [1.0, 1.0, 10.0], is_label=True)
+        # sitk.WriteImage(image_es_myo, ES_myo_maskdir, True)
+        ES_myo_featureVector = extractor.execute(ES_imagedir, ES_myo_maskdir)
+        df_add_myo_ES = pd.DataFrame.from_dict(ES_myo_featureVector.values()).T
+        df_add_myo_ES.columns = ES_myo_featureVector.keys()
+        df = pd.concat([df, df_add_myo_ES], axis=1)
+        ES_lv_maskdir = gtDIR + '_gt_LV.nii.gz'
+        image_es_lv = sitk.ReadImage(ES_lv_maskdir)
+        # image_es_lv = ImageResample(image_es_lv, [1.0, 1.0, 10.0], is_label=True)
+        # sitk.WriteImage(image_es_lv, ES_lv_maskdir, True)
+        ES_lv_featureVector = extractor.execute(ES_imagedir, ES_lv_maskdir)
+        df_add_ES_lv = pd.DataFrame.from_dict(ES_lv_featureVector.values()).T
+        df_add_ES_lv.columns = ES_lv_featureVector.keys()
+        df = pd.concat([df, df_add_ES_lv], axis=1)
+        ES_rv_maskdir = gtDIR + '_gt_RV.nii.gz'
+        image_es_rv = sitk.ReadImage(ES_rv_maskdir)
+        # image_es_rv = ImageResample(image_es_rv, [1.0, 1.0, 10.0], is_label=True)
+        # sitk.WriteImage(image_es_rv, ES_rv_maskdir, True)
+        ES_rv_featureVector = extractor.execute(ES_imagedir, ES_rv_maskdir)
+        df_add_ES_rv = pd.DataFrame.from_dict(ES_rv_featureVector.values()).T
+        df_add_ES_rv.columns = ES_rv_featureVector.keys()
+        df = pd.concat([df, df_add_ES_rv], axis=1)
+        dfD = pd.concat([dfD, df])
+dfD.to_excel(saveDir + '\\'+'MM1_feature.xlsx')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
